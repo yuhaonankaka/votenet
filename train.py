@@ -35,9 +35,9 @@ ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
-from pytorch_utils import BNMomentumScheduler
-from tf_visualizer import Visualizer as TfVisualizer
-from ap_helper import APCalculator, parse_predictions, parse_groundtruths
+from pointnet2.pytorch_utils import BNMomentumScheduler
+from utils.tf_visualizer import Visualizer as TfVisualizer
+from models.ap_helper import APCalculator, parse_predictions, parse_groundtruths
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
@@ -112,8 +112,8 @@ def my_worker_init_fn(worker_id):
 # Create Dataset and Dataloader
 if FLAGS.dataset == 'sunrgbd':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))
-    from sunrgbd_detection_dataset import SunrgbdDetectionVotesDataset, MAX_NUM_OBJ
-    from model_util_sunrgbd import SunrgbdDatasetConfig
+    from sunrgbd.sunrgbd_detection_dataset import SunrgbdDetectionVotesDataset, MAX_NUM_OBJ
+    from sunrgbd.model_util_sunrgbd import SunrgbdDatasetConfig
     DATASET_CONFIG = SunrgbdDatasetConfig()
     TRAIN_DATASET = SunrgbdDetectionVotesDataset('train', num_points=NUM_POINT,
         augment=True,
@@ -125,8 +125,8 @@ if FLAGS.dataset == 'sunrgbd':
         use_v1=(not FLAGS.use_sunrgbd_v2))
 elif FLAGS.dataset == 'scannet':
     sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
-    from scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
-    from model_util_scannet import ScannetDatasetConfig
+    from scannet.scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
+    from scannet.model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
         augment=True,
@@ -214,7 +214,6 @@ CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
     'dataset_config':DATASET_CONFIG}
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
-
 def train_one_epoch():
     stat_dict = {} # collect statistics
     adjust_learning_rate(optimizer, EPOCH_CNT)
