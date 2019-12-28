@@ -100,8 +100,9 @@ def load_frames_multi(data_path, batch_scan_names, num_images, depth_images, col
             # if `total_num_frames=20`, and `num_images=6`--> `interval=round(20/6)=3`
             # then the indices of the chosen frames are: [0,3,6,9,12,15]
             if len(img_list) < num_images:
-                indices = np.concatenate((np.arange(len(img_list)), np.arange(num_images - len(img_list))))
-                indices = indices.astype('int32')
+                while len(indices) < num_images:
+                    indices = np.append(indices, np.arange(len(img_list)))
+                indices = indices[:num_images].astype('int32')
             else:
                 interval = round(len(img_list) / num_images)
                 if interval * (num_images - 1) > len(img_list) - 1:  # just in case, not really necessary
