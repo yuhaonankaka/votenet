@@ -12,10 +12,11 @@ import os
 import sys
 import datetime
 import numpy as np
-from load_scannet_data import export
+from scannet.load_scannet_data import export
 import pdb
 
-SCANNET_DIR = 'scans'
+# SCANNET_DIR = 'scans'
+SCANNET_DIR = '/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds'
 TRAIN_SCAN_NAMES = [line.rstrip() for line in open('meta_data/scannet_train.txt')]
 LABEL_MAP_FILE = 'meta_data/scannetv2-labels.combined.tsv'
 DONOTCARE_CLASS_IDS = np.array([])
@@ -68,7 +69,7 @@ def batch_export():
         if os.path.isfile(output_filename_prefix+'_vert.npy'):
             print('File already exists. skipping.')
             print('-'*20+'done')
-            continue
+            # continue
         try:            
             export_one_scan(scan_name, output_filename_prefix)
         except:

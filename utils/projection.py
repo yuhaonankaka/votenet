@@ -3,6 +3,10 @@ import numpy as np
 import torch
 from torch.autograd import Function
 
+import imageio
+import os
+from utils import pc_util
+
 class ProjectionHelper():
     def __init__(self, intrinsic, depth_min, depth_max, image_dims):
         self.intrinsic = intrinsic
@@ -63,70 +67,187 @@ class ProjectionHelper():
 
 
         # TODO make runnable on cpu as well...
-    def compute_projection(self, depth, camera_to_world, axis_align_matrix=None):
+    def compute_bounds(self, depth, camera_to_world, axis_align_matrix=None):
         # compute projection by voxels -> image
         world_to_camera = torch.inverse(camera_to_world)
         voxel_bounds_min, voxel_bounds_max = self.compute_frustum_bounds(camera_to_world, axis_align_matrix)
         return voxel_bounds_min, voxel_bounds_max, world_to_camera
 
+    def compute_projection(self, pcl, depth, camera_to_world, axis_align_matrix=None):
+        """
 
-        # voxel_bounds_min = np.maximum(voxel_bounds_min, 0).cuda()
-        # voxel_bounds_max = np.minimum(voxel_bounds_max, self.volume_dims).float().cuda()
-        #
-        # # coordinates within frustum bounds
-        # lin_ind_volume = torch.arange(0, self.volume_dims[0]*self.volume_dims[1]*self.volume_dims[2], out=torch.LongTensor()).cuda()
-        # coords = camera_to_world.new(4, lin_ind_volume.size(0))
-        # coords[2] = lin_ind_volume / (self.volume_dims[0]*self.volume_dims[1])
-        # tmp = lin_ind_volume - (coords[2]*self.volume_dims[0]*self.volume_dims[1]).long()
-        # coords[1] = tmp / self.volume_dims[0]
-        # coords[0] = torch.remainder(tmp, self.volume_dims[0])
-        # coords[3].fill_(1)
-        # mask_frustum_bounds = torch.ge(coords[0], voxel_bounds_min[0]) * torch.ge(coords[1], voxel_bounds_min[1]) * torch.ge(coords[2], voxel_bounds_min[2])
-        # mask_frustum_bounds = mask_frustum_bounds * torch.lt(coords[0], voxel_bounds_max[0]) * torch.lt(coords[1], voxel_bounds_max[1]) * torch.lt(coords[2], voxel_bounds_max[2])
-        # if not mask_frustum_bounds.any():
-        #     #print('error: nothing in frustum bounds')
-        #     return None
-        # lin_ind_volume = lin_ind_volume[mask_frustum_bounds]
-        # coords = coords.resize_(4, lin_ind_volume.size(0))
-        # coords[2] = lin_ind_volume / (self.volume_dims[0]*self.volume_dims[1])
-        # tmp = lin_ind_volume - (coords[2]*self.volume_dims[0]*self.volume_dims[1]).long()
-        # coords[1] = tmp / self.volume_dims[0]
-        # coords[0] = torch.remainder(tmp, self.volume_dims[0])
-        # coords[3].fill_(1)
-        #
-        # # transform to current frame
-        # p = torch.mm(world_to_camera, torch.mm(grid_to_world, coords))
-        #
-        # # project into image
-        # p[0] = (p[0] * self.intrinsic[0][0]) / p[2] + self.intrinsic[0][2]
-        # p[1] = (p[1] * self.intrinsic[1][1]) / p[2] + self.intrinsic[1][2]
-        # pi = torch.round(p).long()
-        #
-        # valid_ind_mask = torch.ge(pi[0], 0) * torch.ge(pi[1], 0) * torch.lt(pi[0], self.image_dims[0]) * torch.lt(pi[1], self.image_dims[1])
-        # if not valid_ind_mask.any():
-        #     #print('error: no valid image indices')
-        #     return None
-        # valid_image_ind_x = pi[0][valid_ind_mask]
-        # valid_image_ind_y = pi[1][valid_ind_mask]
-        # valid_image_ind_lin = valid_image_ind_y * self.image_dims[0] + valid_image_ind_x
-        # depth_vals = torch.index_select(depth.view(-1), 0, valid_image_ind_lin)
-        # depth_mask = depth_vals.ge(self.depth_min) * depth_vals.le(self.depth_max) * torch.abs(depth_vals - p[2][valid_ind_mask]).le(self.voxel_size)
-        #
-        # if not depth_mask.any():
-        #     #print('error: no valid depths')
-        #     return None
-        #
-        # lin_ind_update = lin_ind_volume[valid_ind_mask]
-        # lin_ind_update = lin_ind_update[depth_mask]
-        # lin_indices_3d = lin_ind_update.new(self.volume_dims[0]*self.volume_dims[1]*self.volume_dims[2] + 1) #needs to be same size for all in batch... (first element has size)
-        # lin_indices_2d = lin_ind_update.new(self.volume_dims[0]*self.volume_dims[1]*self.volume_dims[2] + 1) #needs to be same size for all in batch... (first element has size)
-        # lin_indices_3d[0] = lin_ind_update.shape[0]
-        # lin_indices_2d[0] = lin_ind_update.shape[0]
-        # lin_indices_3d[1:1+lin_indices_3d[0]] = lin_ind_update
-        # lin_indices_2d[1:1+lin_indices_2d[0]] = torch.index_select(valid_image_ind_lin, 0, torch.nonzero(depth_mask)[:,0])
-        # num_ind = lin_indices_3d[0]
-        #
-        # return lin_indices_3d, lin_indices_2d
+        :param pcl: torch.Tensor, set of points [x,y,z] in point cloud
+        :param depth: torch.Tensor, depth map
+        :param camera_to_world:
+        :param axis_align_matrix: transformation matrix that adjust the pose and the center location of the point cloud
+        :return: lin_indices_3d, lin_indices_2d
+        """
+
+        self.proj_reference(pcl, depth, camera_to_world)  # TEST
+        self.write_pcl(pcl, depth, camera_to_world)  # TEST
+
+        pcl = torch.transpose(pcl, 0, 1).cuda()  # shape: (4, N_points)
+
+        # Compute frustum bounds
+        world_to_camera = torch.inverse(camera_to_world)
+        bounds_min, bounds_max = self.compute_frustum_bounds(camera_to_world, axis_align_matrix)
+        bounds_min = bounds_min.cuda()
+        bounds_max = bounds_max.cuda()
+
+        # Get point cloud coordinates within frustum bounds
+        mask_frustum_bounds_min = torch.ge(pcl[0], bounds_min[0]) * torch.ge(pcl[1], bounds_min[1]) * torch.ge(pcl[2], bounds_min[2])
+        mask_frustum_bounds_max = torch.le(pcl[0], bounds_max[0]) * torch.le(pcl[1], bounds_max[1]) * torch.le(pcl[2], bounds_max[2])
+        mask_frustum_bounds = mask_frustum_bounds_min * mask_frustum_bounds_max
+
+        # filter_x = torch.ge(pcl[0], bounds_min[0]) * torch.le(pcl[0], bounds_max[0])
+        # filter_y = torch.ge(pcl[1], bounds_min[1]) * torch.le(pcl[1], bounds_max[1])
+        # filter_z = torch.ge(pcl[2], bounds_min[2]) * torch.le(pcl[2], bounds_max[2])
+        # ones_uint8 = torch.ones(filter_x.size()[0], dtype=torch.uint8).cuda()
+        # mask_frustum_bounds = torch.stack([filter_x, filter_y, filter_z, ones_uint8])\
+
+        if not mask_frustum_bounds.any():
+            print('error: nothing in frustum bounds')
+            return None
+        valid_indices = torch.arange(0, pcl.size()[1])
+        valid_indices = valid_indices[mask_frustum_bounds].cuda()
+        valid_vertices = torch.index_select(pcl, 1, valid_indices)
+
+        # Transform to current frame
+        p = torch.mm(world_to_camera, valid_vertices)  # (4,4) x (4,N) => (4,N)
+
+        # project into image
+        p[0] = (p[0] * self.intrinsic[0][0]) / p[2] + self.intrinsic[0][2]
+        p[1] = (p[1] * self.intrinsic[1][1]) / p[2] + self.intrinsic[1][2]
+        pi = torch.round(p).long()
+
+        valid_ind_mask = torch.ge(pi[0], 0) * torch.ge(pi[1], 0) * torch.lt(pi[0], self.image_dims[0]) * torch.lt(pi[1], self.image_dims[1])
+        if not valid_ind_mask.any():
+            print('error: no valid image indices')
+            return None
+        valid_image_ind_x = pi[0][valid_ind_mask]
+        valid_image_ind_y = pi[1][valid_ind_mask]
+        valid_image_ind_lin = valid_image_ind_y * self.image_dims[0] + valid_image_ind_x
+        depth_vals = torch.index_select(depth.view(-1), 0, valid_image_ind_lin)
+
+
+        # ==============================
+        # TEST
+        # ==============================
+        pi = pi.cpu().numpy()
+        p = p.cpu().numpy()
+        pi = np.transpose(pi)
+        p = np.transpose(p)
+
+        x = pi[:, 0]
+        x_filter = (x >= 0) & (x < self.image_dims[0])
+        y = pi[:, 1]
+        y_filter = (y >= 0) & (y < self.image_dims[1])
+        filterxy = x_filter & y_filter
+
+        pi = pi[filterxy]
+        p = p[filterxy]
+
+        reconstructed_depth_map = np.zeros((self.image_dims[1], self.image_dims[0]))
+        p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
+
+        for p in p_combined:
+            reconstructed_depth_map[int(p[1]), int(p[0])] = p[2]
+
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        imageio.imwrite(BASE_DIR + '/test/reconstructed_depth_map.png', reconstructed_depth_map)
+        orig_depth_map = depth.cpu().numpy()
+        imageio.imwrite(BASE_DIR + '/test/orig_depth_map.png', orig_depth_map)
+
+        print("finished")
+
+
+        # ==============================
+        # END of TEST
+        # ==============================
+
+
+
+    def proj_reference(self, pcl, depth, camera_to_world, axis_align_matrix=None):
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        # pcl = torch.transpose(pcl, 0, 1)  # shape: (4, N_points)
+        mesh_vertices = pcl.numpy()
+
+        # Compute frustum bounds
+        world_to_camera = torch.inverse(camera_to_world)
+        bounds_min, bounds_max = self.compute_frustum_bounds(camera_to_world, axis_align_matrix)
+        bounds_min = bounds_min.numpy()
+        bounds_max = bounds_max.numpy()
+
+        # filter out the vertices that are not in the frustum (here treated as box-shape)
+        filter1 = mesh_vertices[:, 0]
+        filter1 = (filter1 >= bounds_min[0]) & (filter1 <= bounds_max[0])
+        filter2 = mesh_vertices[:, 1]
+        filter2 = (filter2 >= bounds_min[1]) & (filter2 <= bounds_max[1])
+        filter3 = mesh_vertices[:, 2]
+        filter3 = (filter3 >= bounds_min[2]) & (filter3 <= bounds_max[2])
+        filter_all = filter1 & filter2 & filter3
+        valid_vertices = mesh_vertices[filter_all]
+
+        # transform to current frame
+        world_to_camera = world_to_camera.cpu().numpy()
+        N = valid_vertices.shape[0]
+        valid_vertices_T = np.transpose(valid_vertices)
+        pcamera = np.matmul(world_to_camera, valid_vertices_T)  # (4,4) x (4,N) => (4,N)
+
+        p = np.transpose(pcamera)  # shape: (N,4)
+
+        # project into image
+        p[:, 0] = (p[:, 0] * self.intrinsic[0][0]) / p[:, 2] + self.intrinsic[0][2]
+        p[:, 1] = (p[:, 1] * self.intrinsic[1][1]) / p[:, 2] + self.intrinsic[1][2]
+        pi = np.rint(p)
+
+        x = pi[:, 0]
+        x_filter = (x >= 0) & (x < self.image_dims[0])
+        y = pi[:, 1]
+        y_filter = (y >= 0) & (y < self.image_dims[1])
+        filterxy = x_filter & y_filter
+
+        pi = pi[filterxy]
+        p = p[filterxy]
+
+        reconstructed_depth_map = np.zeros((self.image_dims[1], self.image_dims[0]))
+        p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
+        for p in p_combined:
+            reconstructed_depth_map[int(p[1]), int(p[0])] = p[2]
+
+        imageio.imwrite(BASE_DIR + '/test/reference_depth_map.png', reconstructed_depth_map)
+
+
+    def write_pcl(self, pcl, depth, camera_to_world, axis_align_matrix=None):
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        # output point cloud from depth_image
+        depth_map_to_compare = depth.cpu().numpy()
+        pointstowrite = np.ones((320 * 240, 4))
+        colors = np.ones((320 * 240, 4))
+
+        pc_util.write_ply_rgb(pcl.numpy(), colors, BASE_DIR + '/test/sampled_pcl.obj')
+
+        # TODO: convert this to matrix multiplication
+        print("back-projection, depth-map -> 3d points")
+        for i1 in range(self.image_dims[0]):
+            for i2 in range(self.image_dims[1]):
+                # pcamera = self.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
+                pcamera = self.depth_to_skeleton(i2, i1, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
+                pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
+                camera2world = camera_to_world.cpu().numpy()
+                world = np.matmul(camera2world, pcamera)
+                world = world.reshape((1, 4))
+                pointstowrite[i1 * i2, :] = world[0, :]
+        pointstowrite = pointstowrite[:, 0:3]
+
+        pc_util.write_ply(pointstowrite, BASE_DIR + '/test/testobject.ply')
+        # pc_util.write_ply(pcl.numpy(), BASE_DIR + '/orig_object.ply')
+        # pc_util.write_ply_rgb(pcl.numpy(), colors, BASE_DIR + '/test/sampled_pcl.obj')
+
+
+
+
+
 
 # Inherit from Function
 class Projection(Function):
