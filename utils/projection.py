@@ -8,11 +8,13 @@ import os
 from utils import pc_util
 
 class ProjectionHelper():
-    def __init__(self, intrinsic, depth_min, depth_max, image_dims):
+    def __init__(self, intrinsic, depth_min, depth_max, image_dims, num_point):
         self.intrinsic = intrinsic
         self.depth_min = depth_min
         self.depth_max = depth_max
         self.image_dims = image_dims
+        self.depth_diff_thresh = 0.05
+        self.num_point = num_point  # num of sampled points
 
 
     def depth_to_skeleton(self, ux, uy, depth):
@@ -95,6 +97,7 @@ class ProjectionHelper():
         bounds_max = bounds_max.cuda()
 
         # Get point cloud coordinates within frustum bounds
+        lin_ind_points = torch.arange(0, self.num_point, out=torch.LongTensor()).cuda()
         mask_frustum_bounds_min = torch.ge(pcl[0], bounds_min[0]) * torch.ge(pcl[1], bounds_min[1]) * torch.ge(pcl[2], bounds_min[2])
         mask_frustum_bounds_max = torch.le(pcl[0], bounds_max[0]) * torch.le(pcl[1], bounds_max[1]) * torch.le(pcl[2], bounds_max[2])
         mask_frustum_bounds = mask_frustum_bounds_min * mask_frustum_bounds_max
@@ -108,12 +111,15 @@ class ProjectionHelper():
         if not mask_frustum_bounds.any():
             print('error: nothing in frustum bounds')
             return None
-        valid_indices = torch.arange(0, pcl.size()[1])
-        valid_indices = valid_indices[mask_frustum_bounds].cuda()
-        valid_vertices = torch.index_select(pcl, 1, valid_indices)
+        lin_ind_points = lin_ind_points[mask_frustum_bounds]
+
+        # valid_indices = torch.arange(0, pcl.size()[1])
+        # valid_indices = valid_indices[mask_frustum_bounds].cuda()
+        # valid_vertices = torch.index_select(pcl, 1, valid_indices)
 
         # Transform to current frame
-        p = torch.mm(world_to_camera, valid_vertices)  # (4,4) x (4,N) => (4,N)
+        # p = torch.mm(world_to_camera, valid_vertices)  # (4,4) x (4,N) => (4,N)
+        p = torch.mm(world_to_camera, pcl)  # (4,4) x (4,N) => (4,N)
 
         # project into image
         p[0] = (p[0] * self.intrinsic[0][0]) / p[2] + self.intrinsic[0][2]
@@ -128,6 +134,24 @@ class ProjectionHelper():
         valid_image_ind_y = pi[1][valid_ind_mask]
         valid_image_ind_lin = valid_image_ind_y * self.image_dims[0] + valid_image_ind_x
         depth_vals = torch.index_select(depth.view(-1), 0, valid_image_ind_lin)
+        depth_mask = depth_vals.ge(self.depth_min) * depth_vals.le(self.depth_max) * torch.abs(
+            depth_vals - p[2][valid_ind_mask]).le(self.depth_diff_thresh)
+
+        if not depth_mask.any():
+            print('error: no valid depths')
+            return None
+
+        lin_ind_update = lin_ind_points[valid_ind_mask]
+        lin_ind_update = lin_ind_update[depth_mask]
+        lin_indices_3d = lin_ind_update.new(self.num_point + 1)
+        lin_indices_2d = lin_ind_update.new(self.num_point + 1)
+        lin_indices_3d[0] = lin_ind_update.shape[0]
+        lin_indices_2d[0] = lin_ind_update.shape[0]
+        lin_indices_3d[1:1 + lin_indices_3d[0]] = lin_ind_update
+        lin_indices_2d[1:1 + lin_indices_2d[0]] = torch.index_select(valid_image_ind_lin, 0,
+                                                                     torch.nonzero(depth_mask)[:, 0])
+        num_ind = lin_indices_3d[0]
+        return lin_indices_3d, lin_indices_2d
 
 
         # ==============================
@@ -144,8 +168,11 @@ class ProjectionHelper():
         y_filter = (y >= 0) & (y < self.image_dims[1])
         filterxy = x_filter & y_filter
 
-        pi = pi[filterxy]
-        p = p[filterxy]
+        pi_orig = pi[filterxy]
+        p_orig = p[filterxy]
+
+        pi_test = pi[valid_image_ind_lin.cpu().numpy()]
+        p_test = p[valid_image_ind_lin.cpu().numpy()]
 
         reconstructed_depth_map = np.zeros((self.image_dims[1], self.image_dims[0]))
         p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
@@ -232,7 +259,7 @@ class ProjectionHelper():
         for i1 in range(self.image_dims[0]):
             for i2 in range(self.image_dims[1]):
                 # pcamera = self.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
-                pcamera = self.depth_to_skeleton(i2, i1, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
+                pcamera = self.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
                 pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
                 camera2world = camera_to_world.cpu().numpy()
                 world = np.matmul(camera2world, pcamera)
@@ -240,7 +267,7 @@ class ProjectionHelper():
                 pointstowrite[i1 * i2, :] = world[0, :]
         pointstowrite = pointstowrite[:, 0:3]
 
-        pc_util.write_ply(pointstowrite, BASE_DIR + '/test/testobject.ply')
+        pc_util.write_ply(pointstowrite, BASE_DIR + '/test/back_proj_object.ply')
         # pc_util.write_ply(pcl.numpy(), BASE_DIR + '/orig_object.ply')
         # pc_util.write_ply_rgb(pcl.numpy(), colors, BASE_DIR + '/test/sampled_pcl.obj')
 
