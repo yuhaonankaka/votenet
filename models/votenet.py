@@ -16,11 +16,13 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
+import warnings
 from backbone_module import Pointnet2Backbone
 from voting_module import VotingModule
 from proposal_module import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
+from utils.projection import Projection
 
 
 class VoteNet(nn.Module):
@@ -42,11 +44,12 @@ class VoteNet(nn.Module):
             Number of votes generated from each seed point.
     """
 
-    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr,
+    def __init__(self, num_class, num_images, num_heading_bin, num_size_cluster, mean_size_arr,
         input_feature_dim=0, num_proposal=128, vote_factor=1, sampling='vote_fps'):
         super().__init__()
 
         self.num_class = num_class
+        self.num_images = num_images
         self.num_heading_bin = num_heading_bin
         self.num_size_cluster = num_size_cluster
         self.mean_size_arr = mean_size_arr
@@ -55,6 +58,8 @@ class VoteNet(nn.Module):
         self.num_proposal = num_proposal
         self.vote_factor = vote_factor
         self.sampling=sampling
+
+        self.pooling = nn.MaxPool1d(kernel_size=num_images)
 
         # Backbone point feature learning
         self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
@@ -66,7 +71,7 @@ class VoteNet(nn.Module):
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
             mean_size_arr, num_proposal, sampling)
 
-    def forward(self, inputs):
+    def forward(self, inputs, imageft, projection_indices_3d, projection_indices_2d, num_sampled_points):
         """ Forward pass of the network
 
         Args:
@@ -78,13 +83,39 @@ class VoteNet(nn.Module):
                     Point cloud to run predicts on
                     Each point in the point-cloud MUST
                     be formated as (x, y, z, features...)
+                point_clouds_unaligned: TODO
+            imageft: TODO
+            projection_indices_3d: TODO
+            projection_indices_2d: TODO
+            num_sampled_points: TODO
         Returns:
             end_points: dict
         """
         end_points = {}
         batch_size = inputs['point_clouds'].shape[0]
 
-        end_points = self.backbone_net(inputs['point_clouds'], end_points)
+        # Back project imageft to 3d space and concat with point_clouds
+        num_images = projection_indices_3d.shape[0] // batch_size
+        imageft_back3d = [Projection.apply(ft, ind3d, ind2d, num_sampled_points)
+                          for ft, ind3d, ind2d in zip(imageft, projection_indices_3d, projection_indices_2d)]
+        imageft_back3d = torch.stack(imageft_back3d, dim=2)  # shape: (n_ft_channels, n_sampled_pts, batch_size*n_img)
+
+        # Max Pool
+        if num_images == self.num_images:
+            imageft_back3d = self.pooling(imageft_back3d)  # shape: (n_ft_channels, n_sampled_pts, batch_size)
+        else:
+            warnings.warn("votenet.py: num_images != self.num_images")
+            imageft_back3d = nn.MaxPool1d(kernel_size=num_images)(imageft_back3d)
+
+        # Rearrange the dims
+        imageft_back3d = imageft_back3d.permute(2, 1, 0)
+
+        # Directly use the aligned pcl to concat features, because we already have the mappings of indices.
+        # Alignment operation does not change indices, but only the (x,y,z) value.
+        pcl_enriched = torch.cat((inputs['point_clouds'], imageft_back3d), dim=2)
+
+        # end_points = self.backbone_net(inputs['point_clouds'], end_points)
+        end_points = self.backbone_net(pcl_enriched, end_points)
                 
         # --------- HOUGH VOTING ---------
         xyz = end_points['fp2_xyz']
