@@ -111,22 +111,22 @@ class ScannetDetectionDataset(Dataset):
         target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
         
         # ------------------------------- DATA AUGMENTATION ------------------------------        
-        if self.augment:
-            if np.random.random() > 0.5:
-                # Flipping along the YZ plane
-                point_cloud[:,0] = -1 * point_cloud[:,0]
-                target_bboxes[:,0] = -1 * target_bboxes[:,0]                
-                
-            if np.random.random() > 0.5:
-                # Flipping along the XZ plane
-                point_cloud[:,1] = -1 * point_cloud[:,1]
-                target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
-            
-            # Rotation along up-axis/Z-axis
-            rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
-            rot_mat = pc_util.rotz(rot_angle)
-            point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
-            target_bboxes = rotate_aligned_boxes(target_bboxes, rot_mat)
+        # if self.augment:
+        #     if np.random.random() > 0.5:
+        #         # Flipping along the YZ plane
+        #         point_cloud[:,0] = -1 * point_cloud[:,0]
+        #         target_bboxes[:,0] = -1 * target_bboxes[:,0]                
+        #         
+        #     if np.random.random() > 0.5:
+        #         # Flipping along the XZ plane
+        #         point_cloud[:,1] = -1 * point_cloud[:,1]
+        #         target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
+        #     
+        #     # Rotation along up-axis/Z-axis
+        #     rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
+        #     rot_mat = pc_util.rotz(rot_angle)
+        #     point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
+        #     target_bboxes = rotate_aligned_boxes(target_bboxes, rot_mat)
 
         # compute votes *AFTER* augmentation
         # generate votes
