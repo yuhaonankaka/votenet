@@ -31,6 +31,7 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from utils.projection import ProjectionHelper
+from models.enet import create_enet_for_3d
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -76,7 +77,7 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # =================
 parser.add_argument('--data_path_2d', required=True, help='path to 2d train data')
 parser.add_argument('--num_classes', default=18, help='#classes')
-parser.add_argument('--num_nearest_images', type=int, default=36, help='#images')
+parser.add_argument('--num_nearest_images', type=int, default=5, help='#images')
 parser.add_argument('--model2d_type', default='scannet', help='which enet (scannet)')
 parser.add_argument('--model2d_path', required=True, help='path to enet model')
 parser.add_argument('--use_proxy_loss', dest='use_proxy_loss', action='store_true')
@@ -95,8 +96,9 @@ FLAGS = parser.parse_args()
 ENET_TYPES = {'scannet': (18, [0.496342, 0.466664, 0.440796], [0.277856, 0.28623, 0.291129])}
 
 input_image_dims = [320, 240]
+proj_image_dims = [40, 30]  # feature dimension of ENet
 # proj_image_dims = [41, 32]  # feature dimension of ENet
-proj_image_dims = [320, 240]  # feature dimension of ENet
+# proj_image_dims = [320, 240]  # feature dimension of ENet
 color_mean = [0.496342, 0.466664, 0.440796]
 color_std = [0.277856, 0.28623, 0.291129]
 
@@ -200,11 +202,12 @@ else:
     Detector = MODEL.VoteNet
 
 net = Detector(num_class=DATASET_CONFIG.num_class,
+               num_images=FLAGS.num_nearest_images,
                num_heading_bin=DATASET_CONFIG.num_heading_bin,
                num_size_cluster=DATASET_CONFIG.num_size_cluster,
                mean_size_arr=DATASET_CONFIG.mean_size_arr,
                num_proposal=FLAGS.num_target,
-               input_feature_dim=num_input_channel,
+               input_feature_dim=num_input_channel + 128,
                vote_factor=FLAGS.vote_factor,
                sampling=FLAGS.cluster_sampling)
 
@@ -234,6 +237,16 @@ BN_MOMENTUM_INIT = 0.5
 BN_MOMENTUM_MAX = 0.001
 bn_lbmd = lambda it: max(BN_MOMENTUM_INIT * BN_DECAY_RATE ** (int(it / BN_DECAY_STEP)), BN_MOMENTUM_MAX)
 bnm_scheduler = BNMomentumScheduler(net, bn_lambda=bn_lbmd, last_epoch=start_epoch - 1)
+
+
+# create model
+model2d_fixed, model2d_trainable, model2d_classifier = create_enet_for_3d(ENET_TYPES['scannet'],
+                                                                          FLAGS.model2d_path, DATASET_CONFIG.num_class)
+# move to gpu
+model2d_fixed = model2d_fixed.cuda()
+model2d_fixed.eval()
+model2d_trainable = model2d_trainable.cuda()
+model2d_classifier = model2d_classifier.cuda()
 
 
 def get_current_lr(epoch):
@@ -298,12 +311,19 @@ def train_one_epoch():
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step()  # decay BN momentum
     net.train()  # set model to training mode
+    count = 0
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for key in batch_data_label:
             if key == 'scan_name':
                 batch_scan_names = batch_data_label[key]
                 continue
             batch_data_label[key] = batch_data_label[key].to(device)
+
+        count += 1
+        print("count: {}".format(count))
+        # =======================================
+        # Projection
+        # =======================================
 
         # Get camera intrinsics for each scene
         batch_intrinsics = get_batch_intrinsics(batch_scan_names)
@@ -339,46 +359,15 @@ def train_one_epoch():
 
             # Numpy version:
             # Unalign the Point Cloud (See load_scannet_data.py as reference)
-            test = pcl_aligned
             pts = np.ones((pcl_aligned.size()[0], 4))
             pts[:, 0:3] = pcl_aligned[:, 0:3].cpu().numpy()
             pcl = np.dot(pts, inv_axis_align_matrix_T)
             batch_pcl_unaligned.append(torch.from_numpy(pcl).float())
 
-            # TEST
-            save_root = os.path.join(BASE_DIR, "utils", "test")
-            # 1. Output original Mesh
-            curr_scan_name = scan_name
-            pcl_root = "/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds/"
-            pcl_path = os.path.join(pcl_root, curr_scan_name, curr_scan_name + "_vh_clean_2.ply")
-            destination = os.path.join(save_root, "orig_pcl.ply")
-            shutil.copyfile(pcl_path, destination)
-
-            # # 1.1 Read in Mesh Vertices
-            # mesh_vertices = scannet_utils.read_mesh_vertices_rgb(destination)
-            # # 1.2 Align the Mesh Vertices
-            # mesh_pts = np.ones((mesh_vertices.shape[0], 4))
-            # mesh_pts[:, 0:3] = mesh_vertices[:, 0:3]
-            # mesh_pts = np.dot(mesh_pts, axis_align_matrix.transpose())  # Nx4
-            # # 1.3 Store aligned mesh_vertices
-            # pc_util.write_ply(mesh_pts, save_root + '/mesh_aligned.ply')
-            # # 1.4 Unalign the Mesh Vertices and write to file
-            # mesh_unaligned = np.dot(mesh_pts, inv_axis_align_matrix_T)
-            # pc_util.write_ply(mesh_unaligned, save_root + '/mesh_unaligned.ply')
-
-            # 2. Output aligned Point Cloud
-            pcl_aligned = pcl_aligned.cpu().numpy()
-            pc_util.write_ply(pcl_aligned, save_root + '/pcl_aligned.ply')
-
-            # 3. Output unaligned Point Cloud
-            pc_util.write_ply(pcl, save_root + '/pcl_unaligned.ply')
-
-            # 4. Output reversed-aligned Point Cloud
-            pcl_reversed = np.dot(pcl, axis_align_matrix.T)
-            pc_util.write_ply(pcl_reversed, save_root + '/pcl_reversed.ply')
-
-            print(";")
-            # END of TEST
+            # # TEST
+            # from test_helper import test_unalign_pcl
+            # test_unalign_pcl(pcl_aligned.cpu().numpy(), pcl, scan_name, axis_align_matrix)
+            # # END of TEST
 
             # Torch version:
             # Unalign the Point Cloud (See load_scannet_data.py as reference)
@@ -396,23 +385,65 @@ def train_one_epoch():
             # TODO: double-check the batch_idx
             batch_idx = img_count // FLAGS.num_nearest_images
             # TEST
-            curr_scan_name = batch_scan_names[batch_idx]
-            pcl_root = "/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds/"
-            pcl_path = os.path.join(pcl_root, curr_scan_name, curr_scan_name + "_vh_clean_2.ply")
-            destination = os.path.join(BASE_DIR, "utils", "test", "orig_pcl.ply")
-            shutil.copyfile(pcl_path, destination)
+            # curr_scan_name = batch_scan_names[batch_idx]
+            # pcl_root = "/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds/"
+            # pcl_path = os.path.join(pcl_root, curr_scan_name, curr_scan_name + "_vh_clean_2.ply")
+            # destination = os.path.join(BASE_DIR, "utils", "test", "orig_mesh.ply")
+            # shutil.copyfile(pcl_path, destination)
             # END of TEST
-            projection = ProjectionHelper(batch_intrinsics[batch_idx], FLAGS.depth_min, FLAGS.depth_max, proj_image_dims)
+            projection = ProjectionHelper(batch_intrinsics[batch_idx], FLAGS.depth_min, FLAGS.depth_max, proj_image_dims, NUM_POINT)
             proj_mapping = projection.compute_projection(batch_pcl_unaligned[batch_idx], d_img, c_pose)
             proj_mapping_list.append(proj_mapping)
             img_count += 1
 
-        # TODO:
+        if None in proj_mapping_list: #invalid sample
+            #print '(invalid sample)'
+            continue
+        proj_mapping = list(zip(*proj_mapping_list))
+        proj_ind_3d = torch.stack(proj_mapping[0])
+        proj_ind_2d = torch.stack(proj_mapping[1])
+
+        # TODO: finish proxy loss part
+        # if FLAGS.use_proxy_loss:
+        #     data_util.load_label_frames(opt.data_path_2d, frames[v], label_images, num_classes)
+        #     mask2d = label_images.view(-1).clone()
+        #     for k in range(num_classes):
+        #         if criterion_weights[k] == 0:
+        #             mask2d[mask2d.eq(k)] = 0
+        #     mask2d = mask2d.nonzero().squeeze()
+        #     if (len(mask2d.shape) == 0):
+        #         continue  # nothing to optimize for here
+
+        # 2d features
+        imageft_fixed = model2d_fixed(torch.autograd.Variable(color_images))
+        imageft = model2d_trainable(imageft_fixed)
+        # TODO: finish proxy loss part
+        # if opt.use_proxy_loss:
+        #     ft2d = model2d_classifier(imageft)
+        #     ft2d = ft2d.permute(0, 2, 3, 1).contiguous()
+
+        # project 2d to 3d space
+        # for ft in imageft:
+        #     ft_channels = 1 if len(imageft.shape) == 2 else imageft.shape[0]
+        #     output = ft.new(ft, NUM_POINT).fill_(0)
+        #     num_ind = lin_indices_3d[0]
+        #     if num_ind > 0:
+        #         vals = torch.index_select(label.view(num_label_ft, -1), 1, lin_indices_2d[1:1 + num_ind])
+        #         output.view(num_label_ft, -1)[:, lin_indices_3d[1:1 + num_ind]] = vals
+        # print("something")
+        # =====================================================
+        # =====================================================
+
+
 
         # Forward pass
         optimizer.zero_grad()
-        inputs = {'point_clouds': batch_data_label['point_clouds']}
-        end_points = net(inputs)
+        # inputs = {'point_clouds': batch_data_label['point_clouds']}
+        inputs3d = {'point_clouds_unaligned': batch_pcl_unaligned,
+                    'point_clouds': batch_data_label['point_clouds']}
+        # TODO: modifty the forward passs of votenet and test it
+        end_points = net(inputs3d, imageft, torch.autograd.Variable(proj_ind_3d), torch.autograd.Variable(proj_ind_2d), NUM_POINT)
+
 
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
