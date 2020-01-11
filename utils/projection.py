@@ -85,8 +85,8 @@ class ProjectionHelper():
         :return: lin_indices_3d, lin_indices_2d
         """
 
-        self.proj_reference(pcl, depth, camera_to_world)  # TEST
-        self.write_pcl(pcl, depth, camera_to_world)  # TEST
+        # self.proj_reference(pcl, depth, camera_to_world)  # TEST
+        # self.write_pcl(pcl, depth, camera_to_world)  # TEST
 
         pcl = torch.transpose(pcl, 0, 1).cuda()  # shape: (4, N_points)
 
@@ -112,14 +112,14 @@ class ProjectionHelper():
             print('error: nothing in frustum bounds')
             return None
         lin_ind_points = lin_ind_points[mask_frustum_bounds]
+        valid_vertices = pcl[:, mask_frustum_bounds]
 
         # valid_indices = torch.arange(0, pcl.size()[1])
         # valid_indices = valid_indices[mask_frustum_bounds].cuda()
         # valid_vertices = torch.index_select(pcl, 1, valid_indices)
 
         # Transform to current frame
-        # p = torch.mm(world_to_camera, valid_vertices)  # (4,4) x (4,N) => (4,N)
-        p = torch.mm(world_to_camera, pcl)  # (4,4) x (4,N) => (4,N)
+        p = torch.mm(world_to_camera, valid_vertices)  # (4,4) x (4,N) => (4,N)
 
         # project into image
         p[0] = (p[0] * self.intrinsic[0][0]) / p[2] + self.intrinsic[0][2]
@@ -280,10 +280,11 @@ class ProjectionHelper():
 class Projection(Function):
 
     @staticmethod
-    def forward(ctx, label, lin_indices_3d, lin_indices_2d, volume_dims):
+    def forward(ctx, label, lin_indices_3d, lin_indices_2d, num_sampled_pts):
         ctx.save_for_backward(lin_indices_3d, lin_indices_2d)
         num_label_ft = 1 if len(label.shape) == 2 else label.shape[0]
-        output = label.new(num_label_ft, volume_dims[2], volume_dims[1], volume_dims[0]).fill_(0)
+        # output = label.new(num_label_ft, volume_dims[2], volume_dims[1], volume_dims[0]).fill_(0)
+        output = label.new(num_label_ft, num_sampled_pts).fill_(0)
         num_ind = lin_indices_3d[0]
         if num_ind > 0:
             vals = torch.index_select(label.view(num_label_ft, -1), 1, lin_indices_2d[1:1+num_ind])
@@ -294,7 +295,8 @@ class Projection(Function):
     def backward(ctx, grad_output):
         grad_label = grad_output.clone()
         num_ft = grad_output.shape[0]
-        grad_label.data.resize_(num_ft, 32, 41)
+        # grad_label.data.resize_(num_ft, 32, 41)
+        grad_label.resize_(num_ft, 30, 40)
         lin_indices_3d, lin_indices_2d = ctx.saved_variables
         num_ind = lin_indices_3d.data[0]
         vals = torch.index_select(grad_output.data.contiguous().view(num_ft, -1), 1, lin_indices_3d.data[1:1+num_ind])
