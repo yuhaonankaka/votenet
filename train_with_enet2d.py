@@ -315,12 +315,7 @@ def project_2d_features(batch_data_label):
         Parameters
         ----------
         batch_data_label: dict
-            get from dataloader.
-        num_heading_bin: int
-        num_size_cluster: int
-
-        num_proposal: int (default: 128)
-            Number of proposals/detections generated from the network. Each proposal is a 3D OBB with a semantic class.
+            got from dataloader.
 
 
         Returns:
@@ -389,9 +384,9 @@ def project_2d_features(batch_data_label):
     proj_mapping_list = []
     img_count = 0
     for d_img, c_pose in zip(depth_images, camera_poses):
-        # TODO: double-check the batch_idx
-        batch_idx = img_count // FLAGS.num_nearest_images
-        if batch_idx >= len(batch_scan_names):
+        # TODO: double-check the curr_idx_batch
+        curr_idx_batch = img_count // FLAGS.num_nearest_images
+        if curr_idx_batch >= len(batch_scan_names):
             break
         # TEST
         # curr_scan_name = batch_scan_names[batch_idx]
@@ -400,9 +395,9 @@ def project_2d_features(batch_data_label):
         # destination = os.path.join(BASE_DIR, "utils", "test", "orig_mesh.ply")
         # shutil.copyfile(pcl_path, destination)
         # END of TEST
-        projection = ProjectionHelper(batch_intrinsics[batch_idx], FLAGS.depth_min, FLAGS.depth_max, proj_image_dims,
+        projection = ProjectionHelper(batch_intrinsics[curr_idx_batch], FLAGS.depth_min, FLAGS.depth_max, proj_image_dims,
                                       NUM_POINT)
-        proj_mapping = projection.compute_projection(batch_pcl_unaligned[batch_idx], d_img, c_pose)
+        proj_mapping = projection.compute_projection(batch_pcl_unaligned[curr_idx_batch], d_img, c_pose)
         proj_mapping_list.append(proj_mapping)
         img_count += 1
 
@@ -443,7 +438,6 @@ def train_one_epoch():
     bnm_scheduler.step()  # decay BN momentum
     net.train()  # set model to training mode
 
-    count = 0
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for key in batch_data_label:
             if key == 'scan_name':
@@ -452,13 +446,14 @@ def train_one_epoch():
             batch_data_label[key] = batch_data_label[key].to(device)
 
         # =======================================
-        # Projection
+        # Get 3d <-> 2D Projection Mapping and 2D feature map
         # =======================================
-        count += 1
         proj_ind_3d, proj_ind_2d, imageft = project_2d_features(batch_data_label)
         if proj_ind_3d is None or proj_ind_2d is None or imageft is None:
             warnings.warn("Current training script: Projection invalid with scans: {]".format(batch_scan_names))
             continue
+
+        # TODO: XY flip is disable in dataloader, think about adding the flip back somewhere here.
 
         # Forward pass
         optimizer.zero_grad()

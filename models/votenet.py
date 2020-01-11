@@ -83,7 +83,6 @@ class VoteNet(nn.Module):
                     Point cloud to run predicts on
                     Each point in the point-cloud MUST
                     be formated as (x, y, z, features...)
-                point_clouds_unaligned: TODO
             imageft: TODO
             projection_indices_3d: TODO
             projection_indices_2d: TODO
