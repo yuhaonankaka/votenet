@@ -76,7 +76,7 @@ def test_backprojection_coverage(num_images: int):
     depth_min=0.4
     depth_max=4.0
 
-    BATCH_SIZE = 4
+    BATCH_SIZE = 8
     NUM_POINT = 20000
     RAW_DATA_DIR = '/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds/'
 
@@ -89,6 +89,7 @@ def test_backprojection_coverage(num_images: int):
     TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
                                   shuffle=False, num_workers=4, worker_init_fn=my_worker_init_fn)
 
+    proj_converage = dict()
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         print("Testing {} batch".format(batch_idx))
         for key in batch_data_label:
@@ -169,73 +170,95 @@ def test_backprojection_coverage(num_images: int):
         # ===============================================================
         # ===============================================================
 
-        # TODO: XY flip is disable in dataloader, think about adding the flip back somewhere here.
-
-        assert len(proj_ind_3d) == len(proj_ind_2d)
-
-        inputs3d = {'point_clouds': batch_data_label['point_clouds']}
-
-        # =======================================================================================
-        #        Check 3D <-> 2D mapping
-        # 1. Compute depth value from lin_indices_2d & current depth map
-        #    and got shape (1, NUM_POINT, batch_size*num_images)   --> ref_depth
-        # 2. Compute the depth value from (x,y,z) for the valid indices (get from lin_indices_3d) --> calc_depth
-        # 3. Compare ref_depth and calc_depth to see if they are close.
-        # =======================================================================================
-        for i in range(len(proj_ind_3d)):
-            curr_idx_batch = i // num_images
-            lin_indices_3d = proj_ind_3d[i]
-            lin_indices_2d = proj_ind_2d[i]
-            test_array_3d = lin_indices_3d.cpu().numpy()
-            num_valid_idx = test_array_3d[0]
-            testTTT = test_array_3d[num_valid_idx]
-            test112 = test_array_3d[num_valid_idx + 1]
-            test113 = test_array_3d[num_valid_idx + 2]
-            test_array_3d = test_array_3d[1:num_valid_idx]
+        # TODO: XY flip is disabled in dataloader, think about adding the flip back somewhere here.
 
 
-            camera_to_world = camera_poses[i].cpu().numpy()
-            world_to_camera = np.linalg.inv(camera_to_world)
+        # =======================================
+        # Check 3D <-> 2D mapping
+        # =======================================
+        # test_3d_2d_mapping(batch_pcl_unaligned, depth_images, camera_poses,
+        #                    proj_ind_3d, proj_ind_2d, num_images, NUM_POINT, projection, batch_scan_names)
 
-            assert lin_indices_3d[0] == lin_indices_2d[0]
-            depth_map = depth_images[i]
+        # =======================================
+        # Calculate coverage
+        # =======================================
+        all_3d_pts = set()
 
-            num_label_ft = 1  # just (x,y,z)
-            # depth_map =
-            output = depth_map.new(num_label_ft, NUM_POINT).fill_(0)
-            num_ind = lin_indices_3d[0]
-            if num_ind > 0:
-                vals = torch.index_select(depth_map.view(num_label_ft, -1), 1, lin_indices_2d[1:1 + num_ind])
-                output.view(num_label_ft, -1)[:, lin_indices_3d[1:1 + num_ind]] = vals
-            output = output.cpu().numpy()
-            non_zero_count = np.count_nonzero(output)
-            non_zero_idx = np.nonzero(output)
-            # non_zero_idx should be similar with test_array_3d
+        for curr_idx_batch in range(len(batch_scan_names)):
+            all_3d_pts = set()
+            scan_name = batch_scan_names[curr_idx_batch]
+            for i in range(num_images):
+                index = i + num_images * curr_idx_batch
+                lin_indices_3d = proj_ind_3d[index].cpu().numpy()
+                num_valid_idx = lin_indices_3d[0]
+                valid_indices_3d = set(lin_indices_3d[1:num_valid_idx])
+                all_3d_pts.update(valid_indices_3d)
+                # curr_len = len(all_3d_pts)
+            proj_converage[scan_name] = len(all_3d_pts)
 
-            for idx_3d in test_array_3d:
-                pcl_unaligned = batch_pcl_unaligned[curr_idx_batch]
-                pcl_unaligned = pcl_unaligned.cpu().numpy()
-                # project to camera space
-                pworld = pcl_unaligned[idx_3d].reshape(4, 1)
-                pcamera = np.matmul(world_to_camera, pworld)  # (4,4) x (4,1) => (4,1)
-                p = np.transpose(pcamera)  # (1,4)
-                # project into image space
-                p[:, 0] = (p[:, 0] * projection.intrinsic[0][0]) / p[:, 2] + projection.intrinsic[0][2]
-                p[:, 1] = (p[:, 1] * projection.intrinsic[1][1]) / p[:, 2] + projection.intrinsic[1][2]
-                pi = np.rint(p)
-                idx_2d = pi[0][1] * 40 + pi[0][0]
-                calc_depth = p[0][2]
-                ref_depth = output[0][idx_3d]
-                is_close = np.isclose(calc_depth, ref_depth, atol=0.1, rtol=0)
-                if not is_close:
-                    warnings.warn(batch_scan_names[curr_idx_batch])
-                    sys.exit()
-        # =========================================
-        # End: Check 3D <-> 2D mapping
-        # =========================================
 
-    print("Test passed")
 
+    print("All tests passed")
+    return proj_converage
+
+
+def test_3d_2d_mapping(batch_pcl_unaligned, depth_images, camera_poses, proj_ind_3d, proj_ind_2d, num_images,
+                       NUM_POINT, projection, batch_scan_names):
+    # =======================================================================================
+    #        Check 3D <-> 2D mapping
+    # 1. Compute depth value from lin_indices_2d & current depth map
+    #    and got shape (1, NUM_POINT, batch_size*num_images)   --> ref_depth
+    # 2. Compute the depth value from (x,y,z) for the valid indices (get from lin_indices_3d) --> calc_depth
+    # 3. Compare ref_depth and calc_depth to see if they are close.
+    # =======================================================================================
+    for i in range(len(proj_ind_3d)):
+        curr_idx_batch = i // num_images
+        lin_indices_3d = proj_ind_3d[i]
+        lin_indices_2d = proj_ind_2d[i]
+        test_array_3d = lin_indices_3d.cpu().numpy()
+        num_valid_idx = test_array_3d[0]
+        test_array_3d = test_array_3d[1:num_valid_idx]
+
+        camera_to_world = camera_poses[i].cpu().numpy()
+        world_to_camera = np.linalg.inv(camera_to_world)
+
+        assert lin_indices_3d[0] == lin_indices_2d[0]
+        depth_map = depth_images[i]
+
+        num_label_ft = 1  # just (x,y,z)
+        # depth_map =
+        output = depth_map.new(num_label_ft, NUM_POINT).fill_(0)
+        num_ind = lin_indices_3d[0]
+        if num_ind > 0:
+            vals = torch.index_select(depth_map.view(num_label_ft, -1), 1, lin_indices_2d[1:1 + num_ind])
+            output.view(num_label_ft, -1)[:, lin_indices_3d[1:1 + num_ind]] = vals
+        output = output.cpu().numpy()
+        non_zero_count = np.count_nonzero(output)
+        non_zero_idx = np.nonzero(output)
+        # non_zero_idx should be similar with test_array_3d
+
+        for idx_3d in test_array_3d:
+            pcl_unaligned = batch_pcl_unaligned[curr_idx_batch]
+            pcl_unaligned = pcl_unaligned.cpu().numpy()
+            # project to camera space
+            pworld = pcl_unaligned[idx_3d].reshape(4, 1)
+            pcamera = np.matmul(world_to_camera, pworld)  # (4,4) x (4,1) => (4,1)
+            p = np.transpose(pcamera)  # (1,4)
+            # project into image space
+            p[:, 0] = (p[:, 0] * projection.intrinsic[0][0]) / p[:, 2] + projection.intrinsic[0][2]
+            p[:, 1] = (p[:, 1] * projection.intrinsic[1][1]) / p[:, 2] + projection.intrinsic[1][2]
+            pi = np.rint(p)
+            idx_2d = pi[0][1] * 40 + pi[0][0]
+            calc_depth = p[0][2]
+            ref_depth = output[0][idx_3d]
+            is_close = np.isclose(calc_depth, ref_depth, atol=0.1, rtol=0)
+            if not is_close:
+                warnings.warn(batch_scan_names[curr_idx_batch])
+                sys.exit()
+    print("3D <-> 2D mapping, test passed")
+    # =========================================
+    # End: Check 3D <-> 2D mapping
+    # =========================================
 
 
 
@@ -261,5 +284,29 @@ def test_backprojection_coverage(num_images: int):
 
 
 if __name__ == '__main__':
+    store_path = "/home/kloping/Documents/TUM/3D_object_localization/"
+
+    coverage_100 = test_backprojection_coverage(num_images=100)
+    count = 0
+    pts_sum = 0
+    pts_arr = []
+    for scan_name, num_pts in coverage_100.items():
+        count += 1
+        pts_sum += num_pts
+        pts_arr.append(num_pts)
+
+    if pts_sum != sum(pts_arr):
+        warnings.warn("pts not equal!")
+    average_pts = pts_sum / count
+    print(average_pts)
+    print("max num_pts: {}".format(max(pts_arr)))
+    coverage_100["average_pts"] = average_pts
+
+    import json
+    with open(store_path + 'converage_100.txt', 'w') as file:
+        file.write(json.dumps(coverage_100))
+
+    with open(store_path + 'converage_100.txt') as file:
+        test_file = json.load(file)
     print("This script contains helper functions for testing")
-    test_backprojection_coverage(num_images=10)
+
