@@ -585,7 +585,7 @@ def create_enet(num_classes):
 def create_enet_for_3d(type, model_path, num_3d_classes):
     num_classes = type[0]
     model = create_enet(num_classes)
-    # model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path))
     # remove the classifier
     n = len(model)
     model_trainable = nn.Sequential(*(model[i] for i in range(n-9, n-1))) 

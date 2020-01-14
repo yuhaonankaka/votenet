@@ -51,7 +51,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
 parser.add_argument('--dataset', default='scannet', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
-parser.add_argument('--log_dir', default='log', help='Dump dir to save model checkpoint [default: log]')
+parser.add_argument('--log_dir', default='log_Jan12', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_target', type=int, default=256, help='Proposal number [default: 256]')
@@ -78,7 +78,7 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # =================
 parser.add_argument('--data_path_2d', required=True, help='path to 2d train data')
 parser.add_argument('--num_classes', default=18, help='#classes')
-parser.add_argument('--num_nearest_images', type=int, default=5, help='#images')
+parser.add_argument('--num_nearest_images', type=int, default=10, help='#images')
 parser.add_argument('--model2d_type', default='scannet', help='which enet (scannet)')
 parser.add_argument('--model2d_path', required=True, help='path to enet model')
 parser.add_argument('--use_proxy_loss', dest='use_proxy_loss', action='store_true')
@@ -94,7 +94,8 @@ FLAGS = parser.parse_args()
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG
 
 #                    classes, color mean/std
-ENET_TYPES = {'scannet': (18, [0.496342, 0.466664, 0.440796], [0.277856, 0.28623, 0.291129])}
+# ENET_TYPES = {'scannet': (18, [0.496342, 0.466664, 0.440796], [0.277856, 0.28623, 0.291129])}
+ENET_TYPES = {'scannet': (41, [0.496342, 0.466664, 0.440796], [0.277856, 0.28623, 0.291129])}
 
 input_image_dims = [320, 240]
 proj_image_dims = [40, 30]  # feature dimension of ENet
@@ -241,8 +242,11 @@ bnm_scheduler = BNMomentumScheduler(net, bn_lambda=bn_lbmd, last_epoch=start_epo
 
 
 # create model
+# model2d_fixed, model2d_trainable, model2d_classifier = create_enet_for_3d(ENET_TYPES['scannet'],
+#                                                                           FLAGS.model2d_path, DATASET_CONFIG.num_class)
 model2d_fixed, model2d_trainable, model2d_classifier = create_enet_for_3d(ENET_TYPES['scannet'],
                                                                           FLAGS.model2d_path, DATASET_CONFIG.num_class)
+
 # move to gpu
 model2d_fixed = model2d_fixed.cuda()
 model2d_fixed.eval()
@@ -450,7 +454,7 @@ def train_one_epoch():
         # =======================================
         proj_ind_3d, proj_ind_2d, imageft = project_2d_features(batch_data_label)
         if proj_ind_3d is None or proj_ind_2d is None or imageft is None:
-            warnings.warn("Current training script: Projection invalid with scans: {]".format(batch_scan_names))
+            warnings.warn("Current training script: Projection invalid with scans: {}".format(batch_scan_names))
             continue
 
         # TODO: XY flip is disable in dataloader, think about adding the flip back somewhere here.
