@@ -28,7 +28,7 @@ parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint pa
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_target', type=int, default=256, help='Point Number [default: 256]')
-parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
+parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 8]')
 parser.add_argument('--vote_factor', type=int, default=1, help='Number of votes generated from each seed [default: 1]')
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresholds', default='0.25,0.5', help='A list of AP IoU thresholds [default: 0.25,0.5]')
@@ -43,6 +43,7 @@ parser.add_argument('--nms_iou', type=float, default=0.25, help='NMS IoU thresho
 parser.add_argument('--conf_thresh', type=float, default=0.05, help='Filter out predictions with obj prob less than it. [default: 0.05]')
 parser.add_argument('--faster_eval', action='store_true', help='Faster evaluation by skippling empty bounding box removal.')
 parser.add_argument('--shuffle_dataset', action='store_true', help='Shuffle the dataset (random order).')
+parser.add_argument('--use_MASKRCNN_features', type=bool, default=False, help='Use RGB color in input.')
 FLAGS = parser.parse_args()
 
 if FLAGS.use_cls_nms:
@@ -85,7 +86,7 @@ elif FLAGS.dataset == 'scannet':
     DATASET_CONFIG = ScannetDatasetConfig()
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), useMaskrcnn=FLAGS.use_MASKRCNN_features)
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
@@ -96,7 +97,7 @@ TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1
+num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1 + int(FLAGS.use_MASKRCNN_features)*256
 
 if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet

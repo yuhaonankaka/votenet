@@ -41,9 +41,9 @@ from ap_helper import APCalculator, parse_predictions, parse_groundtruths
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
-parser.add_argument('--dataset', default='sunrgbd', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
+parser.add_argument('--dataset', default='scannet', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
-parser.add_argument('--log_dir', default='log', help='Dump dir to save model checkpoint [default: log]')
+parser.add_argument('--log_dir', default='log_scannet_enet', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_target', type=int, default=256, help='Proposal number [default: 256]')
@@ -51,7 +51,7 @@ parser.add_argument('--vote_factor', type=int, default=1, help='Vote factor [def
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 parser.add_argument('--max_epoch', type=int, default=180, help='Epoch to run [default: 180]')
-parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
+parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
 parser.add_argument('--bn_decay_step', type=int, default=20, help='Period of BN decay (in epochs) [default: 20]')
@@ -60,6 +60,7 @@ parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to deca
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
+parser.add_argument('--use_MASKRCNN_features', type=bool, default=True)
 parser.add_argument('--use_sunrgbd_v2', action='store_true', help='Use V2 box labels for SUN RGB-D dataset')
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
 parser.add_argument('--dump_results', action='store_true', help='Dump results.')
@@ -130,10 +131,10 @@ elif FLAGS.dataset == 'scannet':
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
         augment=True,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), useMaskrcnn=FLAGS.use_MASKRCNN_features)
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height), useMaskrcnn=FLAGS.use_MASKRCNN_features)
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
@@ -147,7 +148,7 @@ print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1
+num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1 + int(FLAGS.use_MASKRCNN_features)*128
 
 if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet
@@ -228,7 +229,7 @@ def train_one_epoch():
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
         end_points = net(inputs)
-        
+
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)

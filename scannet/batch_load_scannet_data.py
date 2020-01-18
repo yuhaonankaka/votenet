@@ -49,6 +49,7 @@ def export_one_scan(scan_name, output_filename_prefix):
         mesh_vertices = mesh_vertices[choices, :]
         semantic_labels = semantic_labels[choices]
         instance_labels = instance_labels[choices]
+        np.save(output_filename_prefix + '_choices.npy', choices)
 
     np.save(output_filename_prefix+'_vert.npy', mesh_vertices)
     np.save(output_filename_prefix+'_sem_label.npy', semantic_labels)
@@ -75,5 +76,5 @@ def batch_export():
             print('Failed export scan: %s'%(scan_name))            
         print('-'*20+'done')
 
-if __name__=='__main__':    
+if __name__=='__main__':
     batch_export()
