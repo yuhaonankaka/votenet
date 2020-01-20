@@ -31,12 +31,14 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
+
+from nlp import LanguageNet, getweights
 from utils.projection import ProjectionHelper
 from models.enet import create_enet_for_3d
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
-RAW_DATA_DIR = '/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds/'
+RAW_DATA_DIR = '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/scenes/'
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
@@ -60,7 +62,7 @@ parser.add_argument('--cluster_sampling', default='vote_fps',
                     help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 parser.add_argument('--max_epoch', type=int, default=180, help='Epoch to run [default: 180]')
-parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 8]')
+parser.add_argument('--batch_size', type=int, default=2, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
 parser.add_argument('--bn_decay_step', type=int, default=20, help='Period of BN decay (in epochs) [default: 20]')
@@ -76,11 +78,11 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # =================
 # 3DMV
 # =================
-parser.add_argument('--data_path_2d', required=True, help='path to 2d train data')
+parser.add_argument('--data_path_2d', default='/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/rawdata', help='path to 2d train data')
 parser.add_argument('--num_classes', default=18, help='#classes')
 parser.add_argument('--num_nearest_images', type=int, default=10, help='#images')
 parser.add_argument('--model2d_type', default='scannet', help='which enet (scannet)')
-parser.add_argument('--model2d_path', required=True, help='path to enet model')
+parser.add_argument('--model2d_path', default='/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/2d_scannet.pth', help='path to enet model')
 parser.add_argument('--use_proxy_loss', dest='use_proxy_loss', action='store_true')
 # 2d/3d
 parser.add_argument('--depth_min', type=float, default=0.4, help='min depth (in meters)')
@@ -226,12 +228,12 @@ optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLA
 # Load checkpoint if there is any
 it = -1  # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
 start_epoch = 0
-if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
-    checkpoint = torch.load(CHECKPOINT_PATH)
-    net.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    start_epoch = checkpoint['epoch']
-    log_string("-> loaded checkpoint %s (epoch: %d)" % (CHECKPOINT_PATH, start_epoch))
+# if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
+#     checkpoint = torch.load(CHECKPOINT_PATH)
+#     net.load_state_dict(checkpoint['model_state_dict'])
+#     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#     start_epoch = checkpoint['epoch']
+#     log_string("-> loaded checkpoint %s (epoch: %d)" % (CHECKPOINT_PATH, start_epoch))
 
 # Decay Batchnorm momentum from 0.5 to 0.999
 # note: pytorch's BN momentum (default 0.1)= 1 - tensorflow's BN momentum
@@ -447,6 +449,8 @@ def train_one_epoch():
             if key == 'scan_name':
                 batch_scan_names = batch_data_label[key]
                 continue
+            if key == 'description' or key=='objectid':
+                continue
             batch_data_label[key] = batch_data_label[key].to(device)
 
         # =======================================
@@ -461,7 +465,9 @@ def train_one_epoch():
 
         # Forward pass
         optimizer.zero_grad()
-        inputs = {'point_clouds': batch_data_label['point_clouds']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'],
+                  'description': batch_data_label['description'],
+                  'objectid': batch_data_label['objectid']}
         # inputs3d = {'point_clouds_unaligned': batch_pcl_unaligned,
         #             'point_clouds': batch_data_label['point_clouds']}
 
@@ -503,6 +509,8 @@ def evaluate_one_epoch():
             if key == 'scan_name':
                 batch_scan_names = batch_data_label[key]
                 continue
+            if key == 'description' or key == 'objectid':
+                continue
             batch_data_label[key] = batch_data_label[key].to(device)
 
         # =======================================
@@ -514,7 +522,9 @@ def evaluate_one_epoch():
             continue
 
         # Forward pass
-        inputs = {'point_clouds': batch_data_label['point_clouds']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'],
+                  'description': batch_data_label['description'],
+                  'objectid': batch_data_label['objectid']}
         with torch.no_grad():
             # end_points = net(inputs)
             end_points = net(inputs, imageft, torch.autograd.Variable(proj_ind_3d),

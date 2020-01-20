@@ -8,6 +8,10 @@ import torch.nn as nn
 import numpy as np
 import sys
 import os
+
+from ap_helper import parse_prediction_bboxes
+from box_util import get_3d_box, box3d_iou
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
@@ -236,10 +240,57 @@ def get_loss(end_points, config):
     box_loss = center_loss + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     end_points['box_loss'] = box_loss
 
+    # Reference Loss
+    # Used for AP calculation
+    CONFIG_DICT = {'remove_empty_box': False, 'use_3d_nms': True,
+                   'nms_iou': 0.25, 'use_old_type_nms': False, 'cls_nms': True,
+                   'per_class_proposal': True, 'conf_thresh': 0.05,
+                   'dataset_config': config}
+    predict_bboxes = parse_prediction_bboxes(end_points, CONFIG_DICT)
+    ground_truth_bboxes = end_points['ground_truth_bbox']
+    ground_truth_bboxes = ground_truth_bboxes.cpu().numpy()
+    batch_size = ground_truth_bboxes.shape[0]
+    K = predict_bboxes.shape[1]
+    predict_iou = np.zeros(shape=(batch_size,K))
+    for i in range(batch_size):
+        for j in range(K):
+            bbox1 = predict_bboxes[i,j,:,:]
+            bbox2 = ground_truth_bboxes[i]
+            cx = bbox2[0]
+            cy = bbox2[1]
+            cz = bbox2[2]
+            dx = bbox2[3]
+            dy = bbox2[4]
+            dz = bbox2[5]
+            box_size = [dx,dy,dz]
+            center = [cx,cy,cz]
+            bbox2 = get_3d_box(box_size,0,center)
+            iou, _ = box3d_iou(bbox1,bbox2)
+            predict_iou[i,j] = iou
+
+    score_groundtruth = torch.tensor(np.argmax(predict_iou,axis=1)).cuda()
+    final_score = end_points['final_score'].cuda()
+    # ref_losses = []
+    # for i in range(batch_size):
+    #     for j in range(K):
+    #         score = final_score[i,j]
+    #         if j == score_groundtruth[i]:
+    #             ref_loss = torch.log(score)
+    #         else:
+    #             ref_loss = 0.01*torch.log(1-score)
+    #         ref_losses.append(ref_loss)
+    # ref_losses = torch.tensor(ref_losses)
+    # ref_losses = torch.sum(ref_losses)
+    # ref_losses = -ref_losses
+
+    ref_loss = nn.CrossEntropyLoss()
+    ref_losses = ref_loss(final_score, score_groundtruth)
+
     # Final loss function
-    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
+    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + ref_losses
     loss *= 10
     end_points['loss'] = loss
+    end_points['refer_loss'] = ref_losses
 
     # --------------------------------------------
     # Some other statistics

@@ -8,6 +8,7 @@
 An axis aligned bounding box is parameterized by (cx,cy,cz) and (dx,dy,dz)
 where (cx,cy,cz) is the center point of the box, dx is the x-axis length of the box.
 """
+import json
 import os
 import sys
 import numpy as np
@@ -53,9 +54,15 @@ class ScannetDetectionDataset(Dataset):
         self.use_color = use_color        
         self.use_height = use_height
         self.augment = augment
+        scanreferpath = "/home/haonan/PycharmProjects/votenet_adl/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
+        scan_id_to_token,scan_id_to_objectid, data  = read_scanrefer(scanreferpath)
+        self.scan_id_to_token = scan_id_to_token
+        self.scan_id_to_objectid = scan_id_to_objectid
+        self.data = data
+
        
     def __len__(self):
-        return len(self.scan_names)
+        return len(self.data)
 
     def __getitem__(self, idx):
         """
@@ -74,11 +81,12 @@ class ScannetDetectionDataset(Dataset):
             pcl_color: unused
         """
         
-        scan_name = self.scan_names[idx]        
+        scan_name = self.data[idx]['scene_id']
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
         semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
+        instance_bboxes_all = np.load(os.path.join(self.data_path, scan_name) + '_bbox_all.npy')
 
         if not self.use_color:
             point_cloud = mesh_vertices[:,0:3] # do not use color for now
@@ -170,8 +178,35 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
         ret_dict['pcl_color'] = pcl_color
         ret_dict['scan_name'] = scan_name
+        ret_dict['objectid'] = self.data[idx]['object_id']
+        ret_dict['description'] = " ".join(self.data[idx]['token'])
+        objectid = int(self.data[idx]['object_id'])
+        ret_dict['ground_truth_bbox'] = instance_bboxes_all[objectid]
+
         return ret_dict
-        
+
+
+def read_scanrefer(filename):
+    assert os.path.isfile(filename)
+    scan_id_to_token = {}
+    scan_id_to_objectid = {}
+    with open(filename) as f:
+        data = json.load(f)
+        num_objects = len(data)
+        for i in range(num_objects):
+            sceneid = data[i]["scene_id"]
+            objectid = data[i]["object_id"]
+            token = data[i]["token"]
+            if not sceneid in scan_id_to_token:
+                scan_id_to_token[sceneid] = [token]
+            else:
+                scan_id_to_token[sceneid].append(token)
+            if not sceneid in scan_id_to_objectid:
+                scan_id_to_objectid[sceneid] = [objectid]
+            else:
+                scan_id_to_objectid[sceneid].append(objectid)
+
+    return scan_id_to_token, scan_id_to_objectid, data
 ############# Visualizaion ########
 
 def viz_votes(pc, point_votes, point_votes_mask, name=''):

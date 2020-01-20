@@ -103,6 +103,7 @@ class ProposalModule(nn.Module):
             exit()
         end_points['aggregated_vote_xyz'] = xyz # (batch_size, num_proposal, 3)
         end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
+        end_points['aggregated_vote_features'] = features
 
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 

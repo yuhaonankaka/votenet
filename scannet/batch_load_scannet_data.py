@@ -16,7 +16,7 @@ from scannet.load_scannet_data import export
 import pdb
 
 # SCANNET_DIR = 'scans'
-SCANNET_DIR = '/home/kloping/Documents/TUM/3D_object_localization/data/scannet_point_clouds'
+SCANNET_DIR = '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/scenes'
 TRAIN_SCAN_NAMES = [line.rstrip() for line in open('meta_data/scannet_train.txt')]
 LABEL_MAP_FILE = 'meta_data/scannetv2-labels.combined.tsv'
 DONOTCARE_CLASS_IDS = np.array([])
@@ -36,6 +36,7 @@ def export_one_scan(scan_name, output_filename_prefix):
     mesh_vertices = mesh_vertices[mask,:]
     semantic_labels = semantic_labels[mask]
     instance_labels = instance_labels[mask]
+    all_instance_bboxes = instance_bboxes
 
     num_instances = len(np.unique(instance_labels))
     print('Num of instances: ', num_instances)
@@ -55,6 +56,7 @@ def export_one_scan(scan_name, output_filename_prefix):
     np.save(output_filename_prefix+'_sem_label.npy', semantic_labels)
     np.save(output_filename_prefix+'_ins_label.npy', instance_labels)
     np.save(output_filename_prefix+'_bbox.npy', instance_bboxes)
+    np.save(output_filename_prefix+'_bbox_all.npy', all_instance_bboxes)
 
 def batch_export():
     if not os.path.exists(OUTPUT_FOLDER):

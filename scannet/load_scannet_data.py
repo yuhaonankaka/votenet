@@ -135,7 +135,7 @@ def export(mesh_file, agg_file, seg_file, meta_file, label_map_file, output_file
         bbox = np.array([(xmin+xmax)/2, (ymin+ymax)/2, (zmin+zmax)/2,
             xmax-xmin, ymax-ymin, zmax-zmin, label_id])
         # NOTE: this assumes obj_id is in 1,2,3,.,,,.NUM_INSTANCES
-        instance_bboxes[obj_id-1,:] = bbox 
+        instance_bboxes[obj_id-1,:] = bbox
 
     if output_file is not None:
         np.save(output_file+'_vert.npy', mesh_vertices)

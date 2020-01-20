@@ -13,6 +13,11 @@ import torch.nn as nn
 import numpy as np
 import sys
 import os
+
+from torch.nn.utils.rnn import pad_sequence
+
+from nlp import LanguageNet, getweights, get_word2idx
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
@@ -92,7 +97,7 @@ class VoteNet(nn.Module):
         """
         end_points = {}
         batch_size = inputs['point_clouds'].shape[0]
-
+        description = inputs['description']
         # Back project imageft to 3d space and concat with point_clouds
         num_images = projection_indices_3d.shape[0] // batch_size
         imageft_back3d = [Projection.apply(ft, ind3d, ind2d, num_sampled_points)
@@ -131,6 +136,33 @@ class VoteNet(nn.Module):
 
         end_points = self.pnet(xyz, features, end_points)
 
+        word2index, zero_index = get_word2idx()
+        languagenet = LanguageNet(getweights(), 128, 1)
+        token_sequence = []
+        for i in range(batch_size):
+            tokens = description[i].split()
+            indices = []
+            for t in tokens:
+                index = word2index[t]
+                indices.append(index)
+            token_sequence.append(torch.tensor(indices).long())
+        batched_sequence = pad_sequence(token_sequence, batch_first=True, padding_value=zero_index)
+        batch_lan_features = languagenet(batched_sequence)[1]
+        enriched_nlp = torch.zeros(batch_size,256,256)
+        aggregated_features = end_points['aggregated_vote_features']
+        aggregated_features = aggregated_features.permute(0,2,1)
+        enriched_nlp[:,:,0:128] = aggregated_features[:,:,0:128]
+        batch_lan_features = torch.squeeze(batch_lan_features)
+        nlp_features = batch_lan_features.repeat_interleave(256,dim=1).view(batch_size,128,256)
+        nlp_features = nlp_features.permute(0,2,1)
+        enriched_nlp[:,:,128:256] = nlp_features[:,:,0:128]
+        #TODO object mask
+        mlp = MLP()
+        fusion_features = mlp(enriched_nlp)
+        slp = SLP()
+        final_score = slp(fusion_features)
+        final_score = torch.squeeze(final_score)
+        end_points['final_score'] = final_score
         return end_points
 
 
@@ -168,3 +200,31 @@ if __name__=='__main__':
         dump_results(end_points, 'tmp', DC)
     except:
         print('Dataset has not been prepared. Skip loss and dump.')
+
+
+class MLP(nn.Module):
+    def __init__(self):
+        super(MLP, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128)
+        )
+
+    def forward(self, x):
+        # convert tensor (128, 1, 28, 28) --> (128, 1*28*28)
+        x = self.layers(x)
+        return x
+
+class SLP(nn.Module):
+    def __init__(self):
+        super(SLP, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(128, 1),
+            # nn.Softmax(1),
+        )
+
+    def forward(self, x):
+        # convert tensor (128, 1, 28, 28) --> (128, 1*28*28)
+        x = self.layers(x)
+        return x

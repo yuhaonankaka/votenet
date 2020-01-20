@@ -1,10 +1,26 @@
 import bcolz
 import numpy as np
 import pickle
+import os,json
 
 from torch import nn
 import torch
 from torch.autograd import Variable
+
+
+def read_target_vocab(filename):
+    assert os.path.isfile(filename)
+    with open(filename) as f:
+        target_vocab = []
+        data = json.load(f)
+        num_objects = len(data)
+        for i in range(num_objects):
+            token = data[i]["token"]
+            for t in token:
+                if t not in target_vocab:
+                    target_vocab.append(t)
+
+    return target_vocab
 
 glove_path = '/home/haonan/Downloads/glove.6B'
 
@@ -27,6 +43,7 @@ glove_path = '/home/haonan/Downloads/glove.6B'
 # vectors.flush()
 # pickle.dump(words, open(f'{glove_path}/6B.50_words.pkl', 'wb'))
 # pickle.dump(word2idx, open(f'{glove_path}/6B.50_idx.pkl', 'wb'))
+scanreferpath = "/home/haonan/PycharmProjects/votenet_adl/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
 
 
 vectors = bcolz.open(f'{glove_path}/6B.50.dat')[:]
@@ -35,13 +52,15 @@ word2idx = pickle.load(open(f'{glove_path}/6B.50_idx.pkl', 'rb'))
 
 glove = {w: vectors[word2idx[w]] for w in words}
 
-target_vocab = words
+target_vocab = read_target_vocab(scanreferpath)
 
 matrix_len = len(target_vocab)
-weights_matrix = np.zeros((matrix_len, 50))
+weights_matrix = np.zeros((matrix_len+1, 50))
 words_found = 0
+target_vocab_word2indx = {}
 
 for i, word in enumerate(target_vocab):
+    target_vocab_word2indx[word] = i
     try:
         weights_matrix[i] = glove[word]
         words_found += 1
@@ -49,6 +68,12 @@ for i, word in enumerate(target_vocab):
         weights_matrix[i] = np.random.normal(scale=0.6, size=(50, ))
 
 weights_matrix = torch.tensor(weights_matrix)
+
+def getweights():
+    return weights_matrix
+
+def get_word2idx():
+    return target_vocab_word2indx, matrix_len
 
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.size()
@@ -60,30 +85,22 @@ def create_emb_layer(weights_matrix, non_trainable=False):
     return emb_layer, num_embeddings, embedding_dim
 
 
-class ToyNN(nn.Module):
+class LanguageNet(nn.Module):
     def __init__(self, weights_matrix, hidden_size, num_layers):
-        super(ToyNN, self).__init__()
+        super(LanguageNet, self).__init__()
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.gru = nn.GRU(embedding_dim, hidden_size, num_layers, batch_first=True)
 
-    def forward(self, inp, hidden):
+    def forward(self, inp, hidden=None):
         inp = self.embedding(inp)
-        inp = torch.unsqueeze(inp,0)
         return self.gru(inp, hidden)
 
     def init_hidden(self, batch_size):
         return torch.Variable(torch.zeros(self.num_layers, batch_size, self.hidden_size))
 
 
-net = ToyNN(weights_matrix, 128, 1)
-
-net.eval()
 
 
-input = ["cat","dog"]
-input = torch.tensor([word2idx[w] for w in input], dtype=torch.long)
-
-test = net(input, None)
 print("ok")
