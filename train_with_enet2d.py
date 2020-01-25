@@ -40,7 +40,7 @@ from models.enet import create_enet_for_3d
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
-RAW_DATA_DIR = '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/scenes/'
+RAW_DATA_DIR = '/mnt/canis/Datasets/ScanNet/public/v2/scans/'
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
@@ -55,7 +55,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
 parser.add_argument('--dataset', default='scannet', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
-parser.add_argument('--log_dir', default='log_Jan12', help='Dump dir to save model checkpoint [default: log]')
+parser.add_argument('--log_dir', default='log_Jan25', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_target', type=int, default=256, help='Proposal number [default: 256]')
@@ -64,7 +64,7 @@ parser.add_argument('--cluster_sampling', default='vote_fps',
                     help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 parser.add_argument('--max_epoch', type=int, default=180, help='Epoch to run [default: 180]')
-parser.add_argument('--batch_size', type=int, default=2, help='Batch Size during training [default: 8]')
+parser.add_argument('--batch_size', type=int, default=12, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
 parser.add_argument('--bn_decay_step', type=int, default=20, help='Period of BN decay (in epochs) [default: 20]')
@@ -80,7 +80,7 @@ parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 # =================
 # 3DMV
 # =================
-parser.add_argument('--data_path_2d', default='/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/rawdata', help='path to 2d train data')
+parser.add_argument('--data_path_2d', default='home/frames_square', help='path to 2d train data')
 parser.add_argument('--num_classes', default=18, help='#classes')
 parser.add_argument('--num_nearest_images', type=int, default=10, help='#images')
 parser.add_argument('--model2d_type', default='scannet', help='which enet (scannet)')

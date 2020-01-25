@@ -16,7 +16,7 @@ from scannet.load_scannet_data import export
 import pdb
 
 # SCANNET_DIR = 'scans'
-SCANNET_DIR = '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/scenes'
+SCANNET_DIR = '/mnt/canis/Datasets/ScanNet/public/v2/scans/'
 TRAIN_SCAN_NAMES = [line.rstrip() for line in open('meta_data/scannet_train.txt')]
 LABEL_MAP_FILE = 'meta_data/scannetv2-labels.combined.tsv'
 DONOTCARE_CLASS_IDS = np.array([])

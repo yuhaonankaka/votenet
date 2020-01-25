@@ -184,7 +184,7 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['objectid'] = self.data[idx]['object_id']
         ret_dict['description'] = " ".join(self.data[idx]['token'])
         objectid = int(self.data[idx]['object_id'])
-        ret_dict['ground_truth_bbox'] = instance_bboxes_all[objectid]
+        ret_dict['ground_truth_bbox'] = instance_bboxes_all[objectid-1]
 
         return ret_dict
 

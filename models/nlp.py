@@ -22,14 +22,14 @@ def read_target_vocab(filename):
 
     return target_vocab
 
-glove_path = '/home/haonan/Downloads/glove.6B'
-#
+glove_path = '~/ScanRefer/data'
+# #
 # words = []
 # idx = 0
 # word2idx = {}
-# vectors = bcolz.carray(np.zeros(1), rootdir=f'{glove_path}/glove.840B.dat', mode='w')
+# vectors = bcolz.carray(np.zeros(1), rootdir=f'{glove_path}/glove.6b.dat', mode='w')
 #
-# with open(f'{glove_path}/glove.840B.300d.txt', 'rb') as f:
+# with open(f'{glove_path}/glove.6B.300d.txt', 'rb') as f:
 #     for l in f:
 #         line = l.decode().split()
 #         if len(line) == 301:
@@ -40,11 +40,11 @@ glove_path = '/home/haonan/Downloads/glove.6B'
 #             vect = np.array(line[1:]).astype(np.float)
 #             vectors.append(vect)
 #
-# vectors = bcolz.carray(vectors[1:].reshape((2195988, 300)), rootdir=f'{glove_path}/6B.300.dat', mode='w')
+# vectors = bcolz.carray(vectors[1:].reshape((400000, 300)), rootdir=f'{glove_path}/6B.300.dat', mode='w')
 # vectors.flush()
 # pickle.dump(words, open(f'{glove_path}/6B.300_words.pkl', 'wb'))
 # pickle.dump(word2idx, open(f'{glove_path}/6B.300_idx.pkl', 'wb'))
-scanreferpath = "/home/haonan/PycharmProjects/votenet_adl/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
+scanreferpath = "../scannet/meta_data_scanrefer/ScanRefer_filtered.json"
 
 
 vectors = bcolz.open(f'{glove_path}/6B.300.dat')[:]
@@ -68,7 +68,7 @@ for i, word in enumerate(target_vocab):
     except KeyError:
         weights_matrix[i] = np.random.normal(scale=0.6, size=(300, ))
 
-print(words_found)
+print(str(words_found) + '/' + str(matrix_len))
 
 weights_matrix = torch.tensor(weights_matrix)
 
@@ -103,7 +103,3 @@ class LanguageNet(nn.Module):
     def init_hidden(self, batch_size):
         return torch.Variable(torch.zeros(self.num_layers, batch_size, self.hidden_size))
 
-
-
-
-print("ok")
