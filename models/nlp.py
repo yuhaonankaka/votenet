@@ -22,7 +22,7 @@ def read_target_vocab(filename):
 
     return target_vocab
 
-glove_path = '~/Adl_Haonan/votenet/scannet/nlpdataset'
+glove_path = 'home/Adl_Haonan/votenet/scannet/nlpdataset'
 # #
 # words = []
 # idx = 0
