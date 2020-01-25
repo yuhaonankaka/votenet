@@ -44,7 +44,7 @@ glove_path = '/home/davech2y/Adl_Haonan/votenet/scannet/nlpdataset'
 # vectors.flush()
 # pickle.dump(words, open(f'{glove_path}/6B.300_words.pkl', 'wb'))
 # pickle.dump(word2idx, open(f'{glove_path}/6B.300_idx.pkl', 'wb'))
-scanreferpath = "../scannet/meta_data_scanrefer/ScanRefer_filtered.json"
+scanreferpath = "/home/davech2y/Adl_Haonan/votenet/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
 
 
 vectors = bcolz.open(f'{glove_path}/6B.300.dat')[:]
