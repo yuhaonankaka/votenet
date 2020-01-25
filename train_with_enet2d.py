@@ -23,18 +23,15 @@ import numpy as np
 from datetime import datetime
 import argparse
 import importlib
-import shutil
 import warnings
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_sequence
-from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 from models.nlp import LanguageNet, getweights, get_word2idx
-from pc_util import write_ply, pyplot_draw_point_cloud, write_ply_rgb
 from utils.projection import ProjectionHelper
 from models.enet import create_enet_for_3d
 
@@ -46,8 +43,6 @@ sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from pointnet2.pytorch_utils import BNMomentumScheduler
 from utils import image_util
-from utils import pc_util
-import scannet_utils
 from utils.tf_visualizer import Visualizer as TfVisualizer
 from models.ap_helper import APCalculator, parse_predictions, parse_groundtruths
 
