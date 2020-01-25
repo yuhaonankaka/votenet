@@ -57,7 +57,7 @@ class ScannetDetectionDataset(Dataset):
         self.use_color = use_color        
         self.use_height = use_height
         self.augment = augment
-        scanreferpath = "/home/haonan/PycharmProjects/votenet_adl/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
+        scanreferpath = "/home/davech2y/Adl_Haonan/votenet/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
         scan_id_to_token,scan_id_to_objectid, data  = read_scanrefer(scanreferpath)
         self.scan_id_to_token = scan_id_to_token
         self.scan_id_to_objectid = scan_id_to_objectid
