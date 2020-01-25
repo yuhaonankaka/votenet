@@ -13,6 +13,9 @@ import os
 import sys
 import numpy as np
 from torch.utils.data import Dataset
+
+from nlp import get_word2idx
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)

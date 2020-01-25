@@ -76,6 +76,10 @@ class VoteNet(nn.Module):
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
             mean_size_arr, num_proposal, sampling)
 
+        self.languagenet = LanguageNet(getweights(), 128, 1)
+        self.mlp = MLP()
+        self.slp = SLP()
+
     def forward(self, inputs, imageft, projection_indices_3d, projection_indices_2d, num_sampled_points):
         """ Forward pass of the network
 
@@ -97,7 +101,6 @@ class VoteNet(nn.Module):
         """
         end_points = {}
         batch_size = inputs['point_clouds'].shape[0]
-        description = inputs['description']
         # Back project imageft to 3d space and concat with point_clouds
         num_images = projection_indices_3d.shape[0] // batch_size
         imageft_back3d = [Projection.apply(ft, ind3d, ind2d, num_sampled_points)
@@ -136,33 +139,24 @@ class VoteNet(nn.Module):
 
         end_points = self.pnet(xyz, features, end_points)
 
-        word2index, zero_index = get_word2idx()
-        languagenet = LanguageNet(getweights(), 128, 1)
-        token_sequence = []
-        for i in range(batch_size):
-            tokens = description[i].split()
-            indices = []
-            for t in tokens:
-                index = word2index[t]
-                indices.append(index)
-            token_sequence.append(torch.tensor(indices).long())
-        batched_sequence = pad_sequence(token_sequence, batch_first=True, padding_value=zero_index)
-        batch_lan_features = languagenet(batched_sequence)[1]
-        enriched_nlp = torch.zeros(batch_size,256,256)
+        batched_sequence = inputs['batched_sequence']
+        batch_lan_features = self.languagenet(batched_sequence)[1]
         aggregated_features = end_points['aggregated_vote_features']
-        aggregated_features = aggregated_features.permute(0,2,1)
-        enriched_nlp[:,:,0:128] = aggregated_features[:,:,0:128]
-        batch_lan_features = torch.squeeze(batch_lan_features)
-        nlp_features = batch_lan_features.repeat_interleave(256,dim=1).view(batch_size,128,256)
-        nlp_features = nlp_features.permute(0,2,1)
-        enriched_nlp[:,:,128:256] = nlp_features[:,:,0:128]
+        aggregated_features_permuted = aggregated_features.permute(0,2,1)
+        batch_lan_features_squeezed = torch.squeeze(batch_lan_features)
+        batch_lan_features_repeated = batch_lan_features_squeezed.repeat_interleave(256,dim=1).view(batch_size,128,256)
+        batch_lan_features_repeated_permuted = batch_lan_features_repeated.permute(0,2,1)
+        enriched_nlp = torch.cat((batch_lan_features_repeated_permuted, aggregated_features_permuted), 2)
+        enriched_nlp_cuda = enriched_nlp.cuda()
         #TODO object mask
-        mlp = MLP()
-        fusion_features = mlp(enriched_nlp)
-        slp = SLP()
-        final_score = slp(fusion_features)
-        final_score = torch.squeeze(final_score)
-        end_points['final_score'] = final_score
+        fusion_features = self.mlp(enriched_nlp_cuda)
+        final_score = self.slp(fusion_features)
+        final_score_squeezed = torch.squeeze(final_score)
+        end_points['final_score'] = final_score_squeezed
+        # l = torch.sum(final_score_squeezed)
+        # l.backward()
+        # grad = enriched_nlp_cuda.grad
+        # ps = [p for p in self.languagenet.parameters()]
         return end_points
 
 
@@ -206,15 +200,15 @@ class MLP(nn.Module):
     def __init__(self):
         super(MLP, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(256, 256),
+            nn.Linear(256, 192),
             nn.ReLU(),
-            nn.Linear(256, 128)
+            nn.Linear(192, 128)
         )
 
     def forward(self, x):
         # convert tensor (128, 1, 28, 28) --> (128, 1*28*28)
-        x = self.layers(x)
-        return x
+        output = self.layers(x)
+        return output
 
 class SLP(nn.Module):
     def __init__(self):
@@ -226,5 +220,5 @@ class SLP(nn.Module):
 
     def forward(self, x):
         # convert tensor (128, 1, 28, 28) --> (128, 1*28*28)
-        x = self.layers(x)
-        return x
+        output = self.layers(x)
+        return output

@@ -29,10 +29,12 @@ import warnings
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.utils.rnn import pad_sequence
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
-from nlp import LanguageNet, getweights
+from nlp import LanguageNet, getweights, get_word2idx
+from pc_util import write_ply, pyplot_draw_point_cloud, write_ply_rgb
 from utils.projection import ProjectionHelper
 from models.enet import create_enet_for_3d
 
@@ -82,7 +84,7 @@ parser.add_argument('--data_path_2d', default='/home/haonan/PycharmProjects/mask
 parser.add_argument('--num_classes', default=18, help='#classes')
 parser.add_argument('--num_nearest_images', type=int, default=10, help='#images')
 parser.add_argument('--model2d_type', default='scannet', help='which enet (scannet)')
-parser.add_argument('--model2d_path', default='/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/2d_scannet.pth', help='path to enet model')
+parser.add_argument('--model2d_path', default='./2d_scannet.pth', help='path to enet model')
 parser.add_argument('--use_proxy_loss', dest='use_proxy_loss', action='store_true')
 # 2d/3d
 parser.add_argument('--depth_min', type=float, default=0.4, help='min depth (in meters)')
@@ -436,7 +438,7 @@ def project_2d_features(batch_data_label):
     return proj_ind_3d, proj_ind_2d, imageft
 
 
-
+word2index, zero_index = get_word2idx()
 
 def train_one_epoch():
     stat_dict = {}  # collect statistics
@@ -464,12 +466,32 @@ def train_one_epoch():
         # TODO: XY flip is disable in dataloader, think about adding the flip back somewhere here.
 
         # Forward pass
+        description = batch_data_label['description']
+        token_sequence = []
+        for i in range(BATCH_SIZE):
+            tokens = description[i].split()
+            indices = []
+            for t in tokens:
+                index = word2index[t]
+                indices.append(index)
+            token_sequence.append(torch.tensor(indices).long())
+        batched_sequence = pad_sequence(token_sequence, batch_first=True, padding_value=zero_index)
+        batched_sequence = batched_sequence.cuda()
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds'],
-                  'description': batch_data_label['description'],
+                  'batched_sequence': batched_sequence,
                   'objectid': batch_data_label['objectid']}
         # inputs3d = {'point_clouds_unaligned': batch_pcl_unaligned,
         #             'point_clouds': batch_data_label['point_clouds']}
+
+        # testpts = batch_data_label['point_clouds'][0].type(torch.FloatTensor)
+        # targetpts = batch_data_label['ground_truth_bbox'][0, 0:4].unsqueeze(0).type(torch.FloatTensor)
+        # testpts = torch.cat((testpts,targetpts), 0).cpu().numpy()
+        # color1 = np.zeros(shape=(20000, 3))
+        # color2 = np.zeros(shape=(1,3))
+        # color2.fill(255)
+        # color = np.concatenate((color1,color2),axis=0)
+        # write_ply_rgb(testpts,color, "./test_plys.ply")
 
         end_points = net(inputs, imageft, torch.autograd.Variable(proj_ind_3d), torch.autograd.Variable(proj_ind_2d), NUM_POINT)
 
@@ -479,6 +501,7 @@ def train_one_epoch():
             end_points[key] = batch_data_label[key]
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
+        params = [p for p in net.parameters()]
         optimizer.step()
 
         # Accumulate statistics and print out
@@ -522,8 +545,20 @@ def evaluate_one_epoch():
             continue
 
         # Forward pass
+        description = batch_data_label['description']
+        token_sequence = []
+        for i in range(BATCH_SIZE):
+            tokens = description[i].split()
+            indices = []
+            for t in tokens:
+                index = word2index[t]
+                indices.append(index)
+            token_sequence.append(torch.tensor(indices).long())
+        batched_sequence = pad_sequence(token_sequence, batch_first=True, padding_value=zero_index)
+        batched_sequence = batched_sequence.cuda()
+        optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds'],
-                  'description': batch_data_label['description'],
+                  'batched_sequence': batched_sequence,
                   'objectid': batch_data_label['objectid']}
         with torch.no_grad():
             # end_points = net(inputs)

@@ -23,39 +23,40 @@ def read_target_vocab(filename):
     return target_vocab
 
 glove_path = '/home/haonan/Downloads/glove.6B'
-
+#
 # words = []
 # idx = 0
 # word2idx = {}
-# vectors = bcolz.carray(np.zeros(1), rootdir=f'{glove_path}/6B.50.dat', mode='w')
+# vectors = bcolz.carray(np.zeros(1), rootdir=f'{glove_path}/glove.840B.dat', mode='w')
 #
-# with open(f'{glove_path}/glove.6B.50d.txt', 'rb') as f:
+# with open(f'{glove_path}/glove.840B.300d.txt', 'rb') as f:
 #     for l in f:
 #         line = l.decode().split()
-#         word = line[0]
-#         words.append(word)
-#         word2idx[word] = idx
-#         idx += 1
-#         vect = np.array(line[1:]).astype(np.float)
-#         vectors.append(vect)
+#         if len(line) == 301:
+#             word = line[0]
+#             words.append(word)
+#             word2idx[word] = idx
+#             idx += 1
+#             vect = np.array(line[1:]).astype(np.float)
+#             vectors.append(vect)
 #
-# vectors = bcolz.carray(vectors[1:].reshape((400000, 50)), rootdir=f'{glove_path}/6B.50.dat', mode='w')
+# vectors = bcolz.carray(vectors[1:].reshape((2195988, 300)), rootdir=f'{glove_path}/6B.300.dat', mode='w')
 # vectors.flush()
-# pickle.dump(words, open(f'{glove_path}/6B.50_words.pkl', 'wb'))
-# pickle.dump(word2idx, open(f'{glove_path}/6B.50_idx.pkl', 'wb'))
+# pickle.dump(words, open(f'{glove_path}/6B.300_words.pkl', 'wb'))
+# pickle.dump(word2idx, open(f'{glove_path}/6B.300_idx.pkl', 'wb'))
 scanreferpath = "/home/haonan/PycharmProjects/votenet_adl/scannet/meta_data_scanrefer/ScanRefer_filtered.json"
 
 
-vectors = bcolz.open(f'{glove_path}/6B.50.dat')[:]
-words = pickle.load(open(f'{glove_path}/6B.50_words.pkl', 'rb'))
-word2idx = pickle.load(open(f'{glove_path}/6B.50_idx.pkl', 'rb'))
+vectors = bcolz.open(f'{glove_path}/6B.300.dat')[:]
+words = pickle.load(open(f'{glove_path}/6B.300_words.pkl', 'rb'))
+word2idx = pickle.load(open(f'{glove_path}/6B.300_idx.pkl', 'rb'))
 
 glove = {w: vectors[word2idx[w]] for w in words}
 
 target_vocab = read_target_vocab(scanreferpath)
 
 matrix_len = len(target_vocab)
-weights_matrix = np.zeros((matrix_len+1, 50))
+weights_matrix = np.zeros((matrix_len+1, 300))
 words_found = 0
 target_vocab_word2indx = {}
 
@@ -65,7 +66,9 @@ for i, word in enumerate(target_vocab):
         weights_matrix[i] = glove[word]
         words_found += 1
     except KeyError:
-        weights_matrix[i] = np.random.normal(scale=0.6, size=(50, ))
+        weights_matrix[i] = np.random.normal(scale=0.6, size=(300, ))
+
+print(words_found)
 
 weights_matrix = torch.tensor(weights_matrix)
 
@@ -94,8 +97,8 @@ class LanguageNet(nn.Module):
         self.gru = nn.GRU(embedding_dim, hidden_size, num_layers, batch_first=True)
 
     def forward(self, inp, hidden=None):
-        inp = self.embedding(inp)
-        return self.gru(inp, hidden)
+        inpt = self.embedding(inp)
+        return self.gru(inpt, hidden)
 
     def init_hidden(self, batch_size):
         return torch.Variable(torch.zeros(self.num_layers, batch_size, self.hidden_size))

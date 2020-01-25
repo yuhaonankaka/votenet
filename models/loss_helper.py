@@ -266,10 +266,13 @@ def get_loss(end_points, config):
             center = [cx,cy,cz]
             bbox2 = get_3d_box(box_size,0,center)
             iou, _ = box3d_iou(bbox1,bbox2)
-            predict_iou[i,j] = iou
+            if objectness_mask[i,j] == 1:
+                predict_iou[i, j] = iou
+            else:
+                predict_iou[i, j] = -1
 
     score_groundtruth = torch.tensor(np.argmax(predict_iou,axis=1)).cuda()
-    final_score = end_points['final_score'].cuda()
+    final_score = end_points['final_score']
     # ref_losses = []
     # for i in range(batch_size):
     #     for j in range(K):
@@ -287,7 +290,7 @@ def get_loss(end_points, config):
     ref_losses = ref_loss(final_score, score_groundtruth)
 
     # Final loss function
-    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + ref_losses
+    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 10*ref_losses
     loss *= 10
     end_points['loss'] = loss
     end_points['refer_loss'] = ref_losses
