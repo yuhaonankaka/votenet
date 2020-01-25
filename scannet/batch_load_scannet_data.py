@@ -12,7 +12,7 @@ import os
 import sys
 import datetime
 import numpy as np
-from scannet.load_scannet_data import export
+from load_scannet_data import export
 import pdb
 
 # SCANNET_DIR = 'scans'
