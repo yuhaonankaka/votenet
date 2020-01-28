@@ -77,25 +77,15 @@ def export(mesh_file, agg_file, seg_file, meta_file, label_map_file, output_file
     axis_align_matrix = np.array(axis_align_matrix).reshape((4,4))
     pts = np.ones((mesh_vertices.shape[0], 4))
     pts[:,0:3] = mesh_vertices[:,0:3]
-    pts_orig = np.copy(pts)  # TEST
     pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
-    pts_test = np.matmul(pts_orig, axis_align_matrix.transpose()) #TEST
-    test = np.array_equal(pts, pts_test) #TEST
-    test_mat = axis_align_matrix.transpose() #TESt
-
     mesh_vertices[:,0:3] = pts[:,0:3]
 
     # # TEST
     # from utils import pc_util
     # BASE_DIR = "/home/kloping/Documents/TUM/3D_object_localization/votenet/utils"
-    #
-    inv_align_matrix_T = np.linalg.inv(axis_align_matrix.T)
-    pts_back = np.dot(pts, inv_align_matrix_T)
-    test_close = np.allclose(pts_orig, pts_back, rtol=1e-02, atol=1e-05)
     # pc_util.write_ply(pts_orig, BASE_DIR + '/test/pts_orig.ply')
     # pc_util.write_ply(pts_back, BASE_DIR + '/test/pts_back.ply')
     # pc_util.write_ply(mesh_vertices_orig[:, 0:3], BASE_DIR + '/test/orig_pcl.ply')
-    print(":")
     # # END of TEST
 
     # Load semantic and instance labels
